@@ -1094,6 +1094,8 @@ async function buildAttachments(n){
 function mailForm(n){
   if(["dep","rest","aut"].some(c=>n[c].length>MAX_LIGNES)) { toast(`Plus de ${MAX_LIGNES} lignes dans un onglet : scindez la note.`); return; }
   const {subject, body} = mailTexts(n);
+  // copie de l'adresse dès l'appui sur « Envoyer » (geste de l'utilisateur), avant toute autre étape
+  let autoCopied=false; try{ navigator.clipboard.writeText(EMAIL_TRESO).then(()=>{ autoCopied=true; const c=document.querySelector('[data-x="copyto"]'); if(c) c.textContent="Copiée ✔"; }).catch(()=>{}); }catch(e){}
   const canShareFiles = !!(navigator.share && navigator.canShare);
   openModal(`<h3>Envoi à la trésorerie</h3>
   <div class="field"><label>À (copiez l'adresse dans le champ « À » du mail)</label><div class="copyrow"><input readonly value="${EMAIL_TRESO}" id="m_to"><button class="btn sm" data-x="copyto">Copier</button></div></div>
@@ -1129,21 +1131,21 @@ function mailForm(n){
     const setPartial=()=>{
       mode="partial"; shareFiles=files.filter((f,i)=>!atts[i].xlsx);
       $("#m_att").querySelectorAll(".st").forEach((el,i)=>{ if(atts[i].xlsx){ el.textContent="à joindre"; el.style.color="var(--warn)"; } });
-      info.innerHTML="Votre téléphone refuse de joindre automatiquement un fichier Excel.<br>① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Enregistrer l'Excel » : il va dans vos Téléchargements.<br>③ « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b>"+(shareFiles.length?" : la note en PDF et les justificatifs sont joints":"")+" ; ajoutez l'Excel avec le trombone 📎 et collez l'adresse dans « À ».";
-      if(!root.querySelector("#m_xlsx")){ const xb=document.createElement("button"); xb.className="btn"; xb.id="m_xlsx"; xb.textContent="② Enregistrer l'Excel";
+      info.innerHTML="L'adresse de la trésorerie est <b>déjà copiée</b>.<br>« Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b>"+(shareFiles.length?" : la note en PDF et les justificatifs sont joints":"")+". Dans « À », appui long → <b>Coller</b>.<br><span class='muted'>Si la trésorerie demande aussi l'Excel : « Enregistrer l'Excel », puis ajoutez-le avec le trombone 📎.</span>";
+      if(!root.querySelector("#m_xlsx")){ const xb=document.createElement("button"); xb.className="btn"; xb.id="m_xlsx"; xb.textContent="Enregistrer l'Excel";
         xb.onclick=()=>{ saveXlsx(); xb.textContent="Excel enregistré ✔"; };
         shareBtn.parentNode.insertBefore(xb, shareBtn); }
-      shareBtn.textContent="③ Ouvrir la messagerie";
+      shareBtn.textContent="✉︎ Ouvrir la messagerie";
     };
     if(mode==="all"){
-      info.innerHTML="① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : tout est joint, collez l'adresse dans « À ».";
+      info.innerHTML="L'adresse de la trésorerie est <b>déjà copiée</b>.<br>« Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : tout est joint. Dans « À », appui long → <b>Coller</b>.";
     } else if(mode==="partial"){
       setPartial();
     } else {
       info.innerHTML="Ce navigateur ne permet pas de joindre des fichiers automatiquement (c'est possible depuis l'application installée sur téléphone). Le bouton télécharge le .zip (Excel + justificatifs) et ouvre votre messagerie : ajoutez le .zip au mail.";
     }
     shareBtn.disabled=false;
-    if(mode!=="partial") shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : "② Ouvrir la messagerie";
+    if(mode!=="partial") shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : "✉︎ Ouvrir la messagerie";
     shareBtn.onclick = () => {
       const subj=$("#m_s").value, txt=$("#m_b").value;
       if(mode==="none"){
