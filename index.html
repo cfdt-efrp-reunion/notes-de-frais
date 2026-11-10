@@ -713,15 +713,18 @@ function mailForm(n){
     const dl = await (window.claude&&claude.use ? claude.use("downloads") : null);
     const saveXlsx = () => dl ? dl.save({filename:atts[0].name, data:atts[0].blob}).catch(()=>{}) : null;
     if(mode==="all"){
-      info.innerHTML="Le bouton ouvre le menu de partage : choisissez <b>votre application de messagerie</b> (Gmail, Outlook…). Tout est joint ; l'adresse de la trésorerie est copiée, collez-la dans « À ».";
+      info.innerHTML="① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : tout est joint, collez l'adresse dans « À ».";
     } else if(mode==="partial"){
-      info.innerHTML="Votre téléphone n'accepte pas de joindre automatiquement un fichier Excel : il sera <b>enregistré dans vos téléchargements</b> au même moment. Ajoutez-le au mail avec le trombone 📎. Les justificatifs, eux, sont joints automatiquement.";
+      info.innerHTML="Votre téléphone refuse de joindre automatiquement un fichier Excel.<br>① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Enregistrer l'Excel » : il va dans vos Téléchargements.<br>③ « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : les justificatifs sont joints ; ajoutez l'Excel avec le trombone 📎 et collez l'adresse dans « À ».";
+      const xb=document.createElement("button"); xb.className="btn"; xb.textContent="② Enregistrer l'Excel";
+      xb.onclick=()=>{ saveXlsx(); xb.textContent="Excel enregistré ✔"; };
+      shareBtn.parentNode.insertBefore(xb, shareBtn);
     } else {
       info.innerHTML="Ce navigateur ne permet pas de joindre des fichiers automatiquement (c'est possible depuis l'application installée sur téléphone). Le bouton télécharge le .zip (Excel + justificatifs) et ouvre votre messagerie : ajoutez le .zip au mail.";
     }
     shareBtn.disabled=false;
-    shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : "✉︎ Ouvrir la messagerie";
-    shareBtn.onclick = async () => {
+    shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : mode==="partial" ? "③ Ouvrir la messagerie" : "② Ouvrir la messagerie";
+    shareBtn.onclick = () => {
       const subj=$("#m_s").value, txt=$("#m_b").value;
       if(mode==="none"){
         const mailto=`mailto:${EMAIL_TRESO}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(txt)}`;
@@ -729,16 +732,13 @@ function mailForm(n){
         if(atts.length>1){ closeModal(); if(view.tab==="syn"&&$("#btnZip")) exportZip(n); } else saveXlsx();
         return;
       }
-      copyTo();
-      if(mode==="partial") saveXlsx();
-      try{
-        const data={title:subj, text:txt}; if(shareFiles.length) data.files=shareFiles;
-        await navigator.share(data);
-        afterSend(n);
-      }catch(e){
+      // navigator.share doit être appelé immédiatement, sans autre action avant (sinon Android le refuse)
+      const data={title:subj, text:txt}; if(shareFiles.length) data.files=shareFiles;
+      let p; try{ p=navigator.share(data); }catch(e){ p=Promise.reject(e); }
+      p.then(()=>afterSend(n)).catch(e=>{
         if(e && e.name==="AbortError") return;
-        info.innerHTML="⚠ Le partage n'a pas pu s'ouvrir. Réessayez, ou utilisez « Tout télécharger » dans la synthèse.";
-      }
+        info.innerHTML=`⚠ Le menu de partage n'a pas pu s'ouvrir${e&&e.name?` (${esc(e.name)})`:""}. Réessayez ; sinon utilisez « Tout télécharger » dans la synthèse et joignez le .zip.`;
+      });
     };
   });
 }
