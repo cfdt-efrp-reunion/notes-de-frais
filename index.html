@@ -156,6 +156,10 @@ textarea.mail{width:100%;min-height:150px;border:1px solid #D6D0CA;border-radius
 .pj .rm:hover{background:var(--err-l);color:var(--err)}
 .pj-add{position:relative;display:inline-flex;align-items:center;gap:6px;overflow:hidden;cursor:pointer}
 .pj-add input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.att{display:grid;gap:4px;margin:4px 0 12px;font-size:14px}
+.att div{display:flex;gap:8px;align-items:center;background:#FBFAF8;border:1px solid var(--line);border-radius:8px;padding:6px 10px;overflow-wrap:anywhere}
+.att .st{margin-left:auto;font-size:12px;font-weight:700;white-space:nowrap}
+.copyrow{display:flex;gap:6px}.copyrow input{flex:1}
 .flag.ok{background:var(--ok-l);color:var(--ok)}
 .pj-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .pj-links a{font-size:13px;font-weight:600;color:var(--o-d);text-decoration:none;background:var(--o-ll);border:1px solid var(--o-l);border-radius:6px;padding:1px 7px}
@@ -483,10 +487,10 @@ function renderSyn(n,t){
     <tr class="total"><td colspan="2">Montant à rembourser</td><td class="num">${eur(t.total)}</td></tr></tbody></table>
   ${check}
   <h3>Envoyer à la trésorerie</h3>
+  <button class="btn primary" data-a="mail" style="width:100%;padding:14px;font-size:17px;margin-bottom:8px">✉︎ Envoyer par mail avec les pièces jointes</button>
   <div class="btns">
     ${nbPj?`<button class="btn primary" data-a="zip" id="btnZip">⤓ Tout télécharger : Excel + ${nbPj} justificatif${nbPj>1?"s":""} (.zip)</button>`:""}
     <button class="btn ${nbPj?"":"primary"}" data-a="export" id="btnExport">⤓ Excel seul</button>
-    <button class="btn" data-a="mail">✉︎ Préparer le mail</button>
   </div>
   <p class="small muted" id="exportHint" style="margin:8px 0 0">L'Excel est généré dans le modèle officiel NOTE_DE_FRAIS_CFDT_EFRP_2026 ; les justificatifs sont renommés par date et prestataire.</p>
   <div class="info">La note de frais est à envoyer par mail <b>avec les justificatifs</b>, en mettant en copie votre responsable de secteur (à défaut le SG), à l'adresse <b>${EMAIL_TRESO}</b>.</div>
@@ -641,12 +645,14 @@ function newNote(){
   });
 }
 
-function mailForm(n){
+function mailTexts(n){
   const t=totals(n), p=periode(n), P=S.profile;
-  const subject=`Note de frais ${n.titre} – ${P.prenom?P.prenom.charAt(0)+P.prenom.slice(1).toLowerCase()+" ":""}${P.nom}`.trim();
+  const cap = x => x ? x.charAt(0)+x.slice(1).toLowerCase() : "";
+  const nbPj=[...n.rest,...n.aut].reduce((s,e)=>s+((e.pj||[]).length),0);
+  const subject=`Note de frais ${n.titre} – ${cap(P.prenom)} ${P.nom}`.replace(/\s+/g," ").trim();
   const body=`Bonjour,
 
-Veuillez trouver ci-joint ma note de frais « ${n.titre} »${p?` (du ${fmtD(p[0])} au ${fmtD(p[1])})`:""}, accompagnée des justificatifs.
+Veuillez trouver ci-joint ma note de frais « ${n.titre} »${p?` (du ${fmtD(p[0])} au ${fmtD(p[1])})`:""}${nbPj?`, accompagnée de ${nbPj} justificatif${nbPj>1?"s":""}`:""}.
 
 Montant à rembourser : ${eur(t.total)}
 - Déplacements : ${eur(t.dep.elu[1]+t.dep.militant[1])}
@@ -654,20 +660,95 @@ Montant à rembourser : ${eur(t.total)}
 - Autres frais : ${eur(t.aut.elu[1]+t.aut.militant[1])}
 
 Bien cordialement,
-${P.prenom?P.prenom.charAt(0)+P.prenom.slice(1).toLowerCase():""} ${P.nom}
+${cap(P.prenom)} ${P.nom}
 ${P.secteur}`;
-  openModal(`<h3>Mail à la trésorerie</h3>
-  <div class="field"><label>À</label><input readonly value="${EMAIL_TRESO}"></div>
+  return {subject, body};
+}
+
+/* Pièces jointes : l'Excel trésorerie + chaque justificatif, renommés */
+async function buildAttachments(n){
+  const out=[{name:baseName(n)+".xlsx", type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", blob:new Blob([await buildXlsx(n)]), xlsx:true}];
+  const jobs=[];
+  for(const [cat,pre] of [["rest","Repas"],["aut","Autre"]]){
+    sortByDate(n[cat]).forEach((e,i)=>{ (e.pj||[]).forEach((x,j)=>{
+      const name=`${pre}_${String(i+1).padStart(2,"0")}_${e.date}_${cleanName(e.prest).slice(0,30)}${e.pj.length>1?"_"+(j+1):""}.${extOf(x.type)}`;
+      const item={name, type:x.type, blob:null}; out.push(item);
+      jobs.push(fetch(blobUrl(x.id)).then(r=>{ if(!r.ok) throw 0; return r.blob(); }).then(b=>{ item.blob=b; }).catch(()=>{ item.missing=true; }));
+    }); }); }
+  await Promise.all(jobs);
+  return out.filter(a=>!a.missing);
+}
+
+function mailForm(n){
+  if(["dep","rest","aut"].some(c=>n[c].length>MAX_LIGNES)) { toast(`Plus de ${MAX_LIGNES} lignes dans un onglet : scindez la note.`); return; }
+  const {subject, body} = mailTexts(n);
+  const canShareFiles = !!(navigator.share && navigator.canShare);
+  openModal(`<h3>Envoi à la trésorerie</h3>
+  <div class="field"><label>À (copiez l'adresse dans le champ « À » du mail)</label><div class="copyrow"><input readonly value="${EMAIL_TRESO}" id="m_to"><button class="btn sm" data-x="copyto">Copier</button></div></div>
   <div class="field"><label>Copie</label><input readonly value="Votre responsable de secteur (à défaut le SG)"></div>
   <div class="field"><label>Objet</label><input id="m_s" value="${esc(subject)}"></div>
   <div class="field"><label>Message</label><textarea class="mail" id="m_b">${esc(body)}</textarea></div>
-  <p class="small muted">Joignez le fichier téléchargé : le .zip contient l'Excel et tous les justificatifs.</p>
-  <div class="foot"><button class="btn" data-x="cancel">Fermer</button><button class="btn" data-x="copy">Copier le message</button>
-  <a class="btn primary" style="text-align:center;text-decoration:none" id="m_go" href="#">Ouvrir ma messagerie</a></div>`, root=>{
-    const link=()=>`mailto:${EMAIL_TRESO}?subject=${encodeURIComponent($("#m_s").value)}&body=${encodeURIComponent($("#m_b").value)}`;
-    $("#m_go").href=link(); root.querySelectorAll("input,textarea").forEach(i=>i.addEventListener("input",()=>$("#m_go").href=link()));
+  <div class="field"><label>Pièces jointes</label><div class="att" id="m_att"><div>Préparation des fichiers…</div></div></div>
+  <p class="small" id="m_info" style="margin:0 0 10px"></p>
+  <div class="foot" id="m_foot"><button class="btn" data-x="cancel">Fermer</button>
+    <button class="btn primary" data-x="share" disabled>Préparation…</button></div>`, async root=>{
     root.querySelector('[data-x="cancel"]').onclick=closeModal;
-    root.querySelector('[data-x="copy"]').onclick=async()=>{ try{ await navigator.clipboard.writeText(`Objet : ${$("#m_s").value}\n\n${$("#m_b").value}`); toast("Message copié"); }catch(e){ $("#m_b").select(); toast("Sélectionné : copiez avec Ctrl+C / appui long"); } };
+    const copyTo=()=>{ try{ navigator.clipboard.writeText(EMAIL_TRESO).catch(()=>{}); }catch(e){} };
+    root.querySelector('[data-x="copyto"]').onclick=()=>{ copyTo(); toast("Adresse copiée"); };
+    const shareBtn=root.querySelector('[data-x="share"]'), info=$("#m_info");
+    let atts=[];
+    try{ atts=await buildAttachments(n); }catch(e){ $("#m_att").innerHTML="<div>⚠ Impossible de préparer l'Excel.</div>"; shareBtn.textContent="Indisponible"; return; }
+    if(!$("#m_att")) return; // fenêtre fermée entre-temps
+    const files = atts.map(a=>new File([a.blob], a.name, {type:a.type}));
+    // Ce que le téléphone accepte de joindre
+    let mode="none", shareFiles=[];
+    if(canShareFiles){
+      try{
+        if(navigator.canShare({files})) { mode="all"; shareFiles=files; }
+        else { const sans=files.filter((f,i)=>!atts[i].xlsx); if(sans.length && navigator.canShare({files:sans})) { mode="partial"; shareFiles=sans; } else if(!sans.length) mode="partial"; }
+      }catch(e){ mode="none"; }
+    }
+    $("#m_att").innerHTML = atts.map((a,i)=>{ const ok = mode==="all" || (mode==="partial" && !a.xlsx);
+      return `<div>${a.xlsx?"📊":(a.type==="application/pdf"?"📄":"🖼")} ${esc(a.name)}<span class="st" style="color:${ok?"var(--ok)":"var(--warn)"}">${ok?"jointe auto.":"à joindre"}</span></div>`; }).join("");
+    const dl = await (window.claude&&claude.use ? claude.use("downloads") : null);
+    const saveXlsx = () => dl ? dl.save({filename:atts[0].name, data:atts[0].blob}).catch(()=>{}) : null;
+    if(mode==="all"){
+      info.innerHTML="Le bouton ouvre le menu de partage : choisissez <b>votre application de messagerie</b> (Gmail, Outlook…). Tout est joint ; l'adresse de la trésorerie est copiée, collez-la dans « À ».";
+    } else if(mode==="partial"){
+      info.innerHTML="Votre téléphone n'accepte pas de joindre automatiquement un fichier Excel : il sera <b>enregistré dans vos téléchargements</b> au même moment. Ajoutez-le au mail avec le trombone 📎. Les justificatifs, eux, sont joints automatiquement.";
+    } else {
+      info.innerHTML="Ce navigateur ne permet pas de joindre des fichiers automatiquement (c'est possible depuis l'application installée sur téléphone). Le bouton télécharge le .zip (Excel + justificatifs) et ouvre votre messagerie : ajoutez le .zip au mail.";
+    }
+    shareBtn.disabled=false;
+    shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : "✉︎ Ouvrir la messagerie";
+    shareBtn.onclick = async () => {
+      const subj=$("#m_s").value, txt=$("#m_b").value;
+      if(mode==="none"){
+        const mailto=`mailto:${EMAIL_TRESO}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(txt)}`;
+        const a=document.createElement("a"); a.href=mailto; a.target="_blank"; a.rel="noopener"; document.body.appendChild(a); a.click(); a.remove();
+        if(atts.length>1){ closeModal(); if(view.tab==="syn"&&$("#btnZip")) exportZip(n); } else saveXlsx();
+        return;
+      }
+      copyTo();
+      if(mode==="partial") saveXlsx();
+      try{
+        const data={title:subj, text:txt}; if(shareFiles.length) data.files=shareFiles;
+        await navigator.share(data);
+        afterSend(n);
+      }catch(e){
+        if(e && e.name==="AbortError") return;
+        info.innerHTML="⚠ Le partage n'a pas pu s'ouvrir. Réessayez, ou utilisez « Tout télécharger » dans la synthèse.";
+      }
+    };
+  });
+}
+function afterSend(n){
+  if(n.statut!=="brouillon"){ closeModal(); return; }
+  closeModal();
+  openModal(`<h3>Mail envoyé ?</h3><p class="muted">Si vous avez bien envoyé le mail, la note passe en « Envoyée » pour le suivi.</p>
+  <div class="foot"><button class="btn" data-x="no">Pas encore</button><button class="btn primary" data-x="ok">Oui, marquer envoyée</button></div>`, r=>{
+    r.querySelector('[data-x="no"]').onclick=closeModal;
+    r.querySelector('[data-x="ok"]').onclick=()=>{ n.statut="envoyee"; n.dateEnvoi=todayISO(); touch(n); closeModal(); render(); toast("Note marquée envoyée ✔"); };
   });
 }
 
