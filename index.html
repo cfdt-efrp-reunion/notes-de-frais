@@ -704,7 +704,9 @@ function mailForm(n){
     let mode="none", shareFiles=[];
     if(canShareFiles){
       try{
-        if(navigator.canShare({files})) { mode="all"; shareFiles=files; }
+        // Android (Chrome, Samsung Internet) annonce parfois accepter l'Excel puis le refuse : on ne le joint pas automatiquement
+        const isAndroid=/Android/i.test(navigator.userAgent);
+        if(!isAndroid && navigator.canShare({files})) { mode="all"; shareFiles=files; }
         else { const sans=files.filter((f,i)=>!atts[i].xlsx); if(sans.length && navigator.canShare({files:sans})) { mode="partial"; shareFiles=sans; } else if(!sans.length) mode="partial"; }
       }catch(e){ mode="none"; }
     }
@@ -712,18 +714,24 @@ function mailForm(n){
       return `<div>${a.xlsx?"📊":(a.type==="application/pdf"?"📄":"🖼")} ${esc(a.name)}<span class="st" style="color:${ok?"var(--ok)":"var(--warn)"}">${ok?"jointe auto.":"à joindre"}</span></div>`; }).join("");
     const dl = await (window.claude&&claude.use ? claude.use("downloads") : null);
     const saveXlsx = () => dl ? dl.save({filename:atts[0].name, data:atts[0].blob}).catch(()=>{}) : null;
+    const setPartial=()=>{
+      mode="partial"; shareFiles=files.filter((f,i)=>!atts[i].xlsx);
+      $("#m_att").querySelectorAll(".st").forEach((el,i)=>{ if(atts[i].xlsx){ el.textContent="à joindre"; el.style.color="var(--warn)"; } });
+      info.innerHTML="Votre téléphone refuse de joindre automatiquement un fichier Excel.<br>① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Enregistrer l'Excel » : il va dans vos Téléchargements.<br>③ « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b>"+(shareFiles.length?" : les justificatifs sont joints":"")+" ; ajoutez l'Excel avec le trombone 📎 et collez l'adresse dans « À ».";
+      if(!root.querySelector("#m_xlsx")){ const xb=document.createElement("button"); xb.className="btn"; xb.id="m_xlsx"; xb.textContent="② Enregistrer l'Excel";
+        xb.onclick=()=>{ saveXlsx(); xb.textContent="Excel enregistré ✔"; };
+        shareBtn.parentNode.insertBefore(xb, shareBtn); }
+      shareBtn.textContent="③ Ouvrir la messagerie";
+    };
     if(mode==="all"){
       info.innerHTML="① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : tout est joint, collez l'adresse dans « À ».";
     } else if(mode==="partial"){
-      info.innerHTML="Votre téléphone refuse de joindre automatiquement un fichier Excel.<br>① Copiez l'adresse (bouton « Copier » ci-dessus).<br>② « Enregistrer l'Excel » : il va dans vos Téléchargements.<br>③ « Ouvrir la messagerie » → choisissez <b>Gmail, Outlook…</b> : les justificatifs sont joints ; ajoutez l'Excel avec le trombone 📎 et collez l'adresse dans « À ».";
-      const xb=document.createElement("button"); xb.className="btn"; xb.textContent="② Enregistrer l'Excel";
-      xb.onclick=()=>{ saveXlsx(); xb.textContent="Excel enregistré ✔"; };
-      shareBtn.parentNode.insertBefore(xb, shareBtn);
+      setPartial();
     } else {
       info.innerHTML="Ce navigateur ne permet pas de joindre des fichiers automatiquement (c'est possible depuis l'application installée sur téléphone). Le bouton télécharge le .zip (Excel + justificatifs) et ouvre votre messagerie : ajoutez le .zip au mail.";
     }
     shareBtn.disabled=false;
-    shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : mode==="partial" ? "③ Ouvrir la messagerie" : "② Ouvrir la messagerie";
+    if(mode!=="partial") shareBtn.textContent = mode==="none" ? "Télécharger et ouvrir la messagerie" : "② Ouvrir la messagerie";
     shareBtn.onclick = () => {
       const subj=$("#m_s").value, txt=$("#m_b").value;
       if(mode==="none"){
@@ -737,6 +745,7 @@ function mailForm(n){
       let p; try{ p=navigator.share(data); }catch(e){ p=Promise.reject(e); }
       p.then(()=>afterSend(n)).catch(e=>{
         if(e && e.name==="AbortError") return;
+        if(mode==="all" && shareFiles.some(f=>/\.xlsx$/i.test(f.name))){ setPartial(); info.innerHTML="⚠ Votre téléphone a refusé l'Excel en pièce jointe : suivez les étapes ci-dessous.<br>"+info.innerHTML; return; }
         info.innerHTML=`⚠ Le menu de partage n'a pas pu s'ouvrir${e&&e.name?` (${esc(e.name)})`:""}. Réessayez ; sinon utilisez « Tout télécharger » dans la synthèse et joignez le .zip.`;
       });
     };
