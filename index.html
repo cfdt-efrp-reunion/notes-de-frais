@@ -1474,7 +1474,22 @@ async function buildPdf(n){
     columnStyles:{1:{halign:"right",cellWidth:30},2:{halign:"right",cellWidth:38}},
     didParseCell:d=>{ if(d.section==="head"&&d.column.index>0) d.cell.styles.halign="right";
       if(d.section==="body"&&d.row.index===rows.length){ d.cell.styles.fillColor=O; d.cell.styles.textColor=[255,255,255]; d.cell.styles.fontStyle="bold"; d.cell.styles.fontSize=11.5; } } });
-  y=doc.lastAutoTable.finalY+9;
+  y=doc.lastAutoTable.finalY+6;
+  // Visa de la trésorerie (à remplir par les trésoriers)
+  const vH=50; if(y+vH>282){ doc.addPage(); y=20; }
+  doc.setDrawColor(...GREY); doc.setLineWidth(0.3); doc.setLineDashPattern([1.2,1],0); doc.roundedRect(M, y, W-2*M, vH, 2, 2, "S"); doc.setLineDashPattern([],0);
+  doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.setTextColor(...INK); doc.text("VISA DE LA TRÉSORERIE", M+5, y+7);
+  doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...GREY); doc.text("Cadre réservé à la trésorerie", W-M-5, y+7, {align:"right"});
+  doc.setFontSize(9); doc.setTextColor(...INK); doc.setDrawColor(...LINE);
+  const fx=M+5, lx=M+44, lw=48; let fy=y+15;
+  const ligne=(lbl,suffix)=>{ doc.text(lbl, fx, fy); doc.setDrawColor(170,170,170); doc.setLineWidth(0.2); doc.line(lx, fy+0.6, lx+lw, fy+0.6); if(suffix) doc.text(suffix, lx+lw+1.5, fy); fy+=7.5; };
+  fy+=1.5; ligne("Montant validé :", "€"); fy+=1.5; ligne("Date de paiement :"); fy+=1.5;
+  doc.text("Observations :", fx, fy); doc.setDrawColor(170,170,170); doc.line(lx, fy+0.6, lx+lw, fy+0.6); doc.line(fx, fy+8.1, lx+lw, fy+8.1);
+  const sx=M+112, sw=W-M-5-sx;
+  doc.setFontSize(8.5); doc.setTextColor(...GREY); doc.text("Nom, date et signature du trésorier", sx+sw/2, y+15, {align:"center"});
+  doc.setDrawColor(200,200,200); doc.setLineWidth(0.2); doc.rect(sx, y+18, sw, vH-23);
+  y+=vH+4;
+  y+=3;
   // Détails
   const section=(title, headRow, body, colStyles, total)=>{
     if(!body.length) return;
@@ -1528,6 +1543,7 @@ async function buildPdf(n){
     }catch(e){}
   }
   y+=boxH+4;
+
   // Pied de page
   const pages=doc.getNumberOfPages();
   for(let i=1;i<=pages;i++){ doc.setPage(i); doc.setFontSize(7.5); doc.setTextColor(...GREY);
